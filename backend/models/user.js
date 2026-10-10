@@ -2,6 +2,7 @@ const mongoose = require('mongoose')
 const validator = require('validator')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
+const crypto = require('crypto')
 
 const userSchema = new mongoose.Schema({
     name: {
@@ -24,6 +25,10 @@ const userSchema = new mongoose.Schema({
         minlength: [6, 'Password must be at least 6 characters'],
         select: false // never returned in queries unless asked for
     },
+    avatar: {
+        public_id: { type: String },
+        url: { type: String }
+    },
     role: {
         type: String,
         enum: ['user', 'admin'],
@@ -32,7 +37,9 @@ const userSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
-    }
+    },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date
 })
 
 // hash the password whenever it is new or changed
@@ -49,6 +56,13 @@ userSchema.methods.getJwtToken = function () {
 
 userSchema.methods.comparePassword = function (enteredPassword) {
     return bcrypt.compare(enteredPassword, this.password)
+}
+
+userSchema.methods.getResetPasswordToken = function () {
+    const resetToken = crypto.randomBytes(20).toString('hex')
+    this.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex')
+    this.resetPasswordExpire = Date.now() + 30 * 60 * 1000 // 30 minutes
+    return resetToken
 }
 
 module.exports = mongoose.model('User', userSchema)

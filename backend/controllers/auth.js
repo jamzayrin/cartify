@@ -6,7 +6,13 @@ const sendEmail = require('../utils/sendEmail')
 const sendToken = (user, statusCode, res) => {
     const token = user.getJwtToken()
     user.password = undefined // never send the hash
-    res.status(statusCode).json({ success: true, token, user })
+
+    const options = {
+        expires: new Date(Date.now() + process.env.COOKIE_EXPIRES_TIME * 24 * 60 * 60 * 1000),
+        httpOnly: true
+    }
+
+    res.status(statusCode).cookie('token', token, options).json({ success: true, token, user })
 }
 
 // POST /api/v1/register
@@ -54,7 +60,12 @@ exports.loginUser = async (req, res) => {
 
 // GET /api/v1/logout
 // JWT is stateless: the frontend deletes the saved token. This just gives it an endpoint to call.
+// GET /api/v1/logout
 exports.logout = (req, res) => {
+    res.cookie('token', null, {
+        expires: new Date(Date.now()),
+        httpOnly: true
+    })
     res.status(200).json({ success: true, message: 'Logged out' })
 }
 
@@ -64,18 +75,20 @@ exports.getUserProfile = (req, res) => {
 }
 
 // PUT /api/v1/me/update
-exports.updateProfile = async (req, res) => {
-    try {
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { name: req.body.name, email: req.body.email },
-            { new: true, runValidators: true }
-        )
-        res.status(200).json({ success: true, user })
-    } catch (err) {
-        res.status(400).json({ success: false, message: err.message })
-    }
-}
+   exports.updateProfile = async (req, res) => {
+       try {
+           const body = req.body || {}
+           const user = await User.findByIdAndUpdate(
+               req.user.id,
+               { name: body.name, email: body.email },
+               { new: true, runValidators: true }
+           )
+           res.status(200).json({ success: true, user })
+       } catch (err) {
+           console.log('updateProfile error:', err.message)
+           res.status(400).json({ success: false, message: err.message })
+       }
+   }
 
 // PUT /api/v1/password/update
 exports.updatePassword = async (req, res) => {
