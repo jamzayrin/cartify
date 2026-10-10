@@ -7,16 +7,22 @@ const productSchema = new mongoose.Schema({
         trim: true,
         maxLength: [100, 'Product name cannot exceed 100 characters']
     },
+    brand: {
+        type: String,
+        required: [true, 'Please enter product brand'],
+        trim: true
+    },
     price: {
         type: Number,
         required: [true, 'Please enter product price'],
-        maxLength: [5, 'Product name cannot exceed 5 characters'],
+        max: [99999, 'Product price cannot exceed 99999'],
         default: 0.0
     },
     description: {
         type: String,
         required: [true, 'Please enter product description'],
     },
+    shades: [String],
     ratings: {
         type: Number,
         default: 0
@@ -38,30 +44,26 @@ const productSchema = new mongoose.Schema({
         required: [true, 'Please select category for this product'],
         enum: {
             values: [
-                'Electronics',
-                'Cameras',
-                'Laptops',
-                'Accessories',
-                'Headphones',
-                'Food',
-                "Books",
-                'Clothes/Shoes',
-                'Beauty/Health',
-                'Sports',
-                'Outdoor',
-                'Home'
+                'Foundation',
+                'Concealer',
+                'Powder',
+                'Blush & Highlighter',
+                'Eyeshadow',
+                'Eyeliner & Mascara',
+                'Lipstick & Lip Tint',
+                'Brows'
             ],
             message: 'Please select correct category for product'
         }
     },
     seller: {
         type: String,
-        required: [true, 'Please enter product seller']
+        default: 'Cartify'
     },
     stock: {
         type: Number,
         required: [true, 'Please enter product stock'],
-        maxLength: [5, 'Product name cannot exceed 5 characters'],
+        max: [99999, 'Product stock cannot exceed 99999'],
         default: 0
     },
     createdAt: {
