@@ -1,8 +1,9 @@
 const User = require('../models/user')
 const crypto = require('crypto')
 const sendEmail = require('../utils/sendEmail')
+const cloudinary = require('cloudinary')
 
-// small helper so every auth response looks the same
+// sets the token cookie and returns the user
 const sendToken = (user, statusCode, res) => {
     const token = user.getJwtToken()
     user.password = undefined // never send the hash
@@ -59,8 +60,6 @@ exports.loginUser = async (req, res) => {
 }
 
 // GET /api/v1/logout
-// JWT is stateless: the frontend deletes the saved token. This just gives it an endpoint to call.
-// GET /api/v1/logout
 exports.logout = (req, res) => {
     res.cookie('token', null, {
         expires: new Date(Date.now()),
@@ -75,25 +74,47 @@ exports.getUserProfile = (req, res) => {
 }
 
 // PUT /api/v1/me/update
-   exports.updateProfile = async (req, res) => {
-       try {
-           const body = req.body || {}
-           const user = await User.findByIdAndUpdate(
-               req.user.id,
-               { name: body.name, email: body.email },
-               { new: true, runValidators: true }
-           )
-           res.status(200).json({ success: true, user })
-       } catch (err) {
-           console.log('updateProfile error:', err.message)
-           res.status(400).json({ success: false, message: err.message })
-       }
-   }
+exports.updateProfile = async (req, res) => {
+    try {
+        const body = req.body || {}
+        const newData = { name: body.name, email: body.email }
+
+        // only touch the avatar when a new image was chosen
+        if (body.avatar) {
+            const current = await User.findById(req.user.id)
+            if (current.avatar?.public_id) {
+                await cloudinary.v2.uploader.destroy(current.avatar.public_id)
+            }
+            const result = await cloudinary.v2.uploader.upload(body.avatar, {
+                folder: 'avatars',
+                width: 150,
+                crop: 'scale'
+            })
+            newData.avatar = { public_id: result.public_id, url: result.secure_url }
+        }
+
+        const user = await User.findByIdAndUpdate(req.user.id, newData, {
+            new: true,
+            runValidators: true
+        })
+        res.status(200).json({ success: true, user })
+    } catch (err) {
+        console.log('updateProfile error:', err.message)
+        res.status(400).json({ success: false, message: err.message })
+    }
+}
 
 // PUT /api/v1/password/update
 exports.updatePassword = async (req, res) => {
     try {
-        const { oldPassword, newPassword } = req.body
+        const { oldPassword } = req.body
+        // the professor's page sends "password", other clients may send "newPassword"
+        const newPassword = req.body.password || req.body.newPassword
+
+        if (!oldPassword || !newPassword) {
+            return res.status(400).json({ success: false, message: 'Please enter old and new password' })
+        }
+
         const user = await User.findById(req.user.id).select('+password')
 
         if (!(await user.comparePassword(oldPassword))) {
