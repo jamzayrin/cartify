@@ -47,6 +47,117 @@ exports.loginUser = async (req, res) => {
     }
 }
 
+// ---------------------------------------------------------------------
+// SOCIAL LOGIN  (Google via Firebase, Facebook via react-facebook-login)
+// ---------------------------------------------------------------------
+
+const GRAPH = 'https://graph.facebook.com'
+
+// Logs the person in. If nobody has this email yet, an account is created.
+const loginOrCreateSocial = async (res, { email, name, picture, provider, providerId }) => {
+    const lowerEmail = email.toLowerCase()
+    let user = await User.findOne({ email: lowerEmail })
+
+    if (!user) {
+        user = await User.create({
+            name: name || lowerEmail.split('@')[0],
+            email: lowerEmail,
+            // social accounts never use this, but the model needs a password
+            password: crypto.randomBytes(32).toString('hex'),
+            avatar: {
+                public_id: `${provider}_${providerId}`,
+                url: picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(name || lowerEmail)}`
+            }
+        })
+    }
+
+    // same cookie the normal login sets
+    sendToken(user, 200, res)
+}
+
+// POST /api/v1/auth/firebase   body: { idToken }
+// Google sign-in done on the frontend with Firebase Authentication
+exports.firebaseLogin = async (req, res) => {
+    try {
+        const { idToken } = req.body
+        if (!idToken) {
+            return res.status(400).json({ success: false, message: 'Missing Google token' })
+        }
+
+        // ask Firebase whether this ID token is real (no extra package needed)
+        const response = await fetch(
+            `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken })
+            }
+        )
+        const data = await response.json()
+
+        if (!response.ok || !data.users || data.users.length === 0) {
+            return res.status(401).json({ success: false, message: 'Invalid Google sign-in' })
+        }
+
+        const fbUser = data.users[0]
+        if (!fbUser.email || !fbUser.emailVerified) {
+            return res.status(401).json({ success: false, message: 'Your Google email is not verified' })
+        }
+
+        await loginOrCreateSocial(res, {
+            email: fbUser.email,
+            name: fbUser.displayName,
+            picture: fbUser.photoUrl,
+            provider: 'firebase',
+            providerId: fbUser.localId
+        })
+    } catch (err) {
+        const message = err.name === 'ValidationError' ? err.message : 'Google sign-in failed. Please try again.'
+        res.status(500).json({ success: false, message })
+    }
+}
+
+// POST /api/v1/auth/facebook   body: { accessToken }
+// token comes from the react-facebook-login package on the frontend
+exports.facebookLogin = async (req, res) => {
+    try {
+        const { accessToken } = req.body
+        if (!accessToken) {
+            return res.status(400).json({ success: false, message: 'Missing Facebook token' })
+        }
+
+        const token = encodeURIComponent(accessToken)
+
+        // make sure the token belongs to OUR Facebook app
+        const app = await fetch(`${GRAPH}/app?access_token=${token}`).then(r => r.json())
+        if (app.error || app.id !== process.env.FACEBOOK_APP_ID) {
+            return res.status(401).json({ success: false, message: 'Invalid Facebook sign-in' })
+        }
+
+        const profile = await fetch(
+            `${GRAPH}/me?fields=id,name,email,picture.type(large)&access_token=${token}`
+        ).then(r => r.json())
+
+        if (profile.error) {
+            return res.status(401).json({ success: false, message: 'Invalid Facebook sign-in' })
+        }
+        if (!profile.email) {
+            return res.status(400).json({ success: false, message: 'Facebook did not share an email address. Please sign in another way.' })
+        }
+
+        await loginOrCreateSocial(res, {
+            email: profile.email,
+            name: profile.name,
+            picture: profile.picture && profile.picture.data && profile.picture.data.url,
+            provider: 'facebook',
+            providerId: profile.id
+        })
+    } catch (err) {
+        const message = err.name === 'ValidationError' ? err.message : 'Facebook sign-in failed. Please try again.'
+        res.status(500).json({ success: false, message })
+    }
+}
+
 // GET /api/v1/logout
 exports.logout = (req, res) => {
     res.cookie('token', null, {
